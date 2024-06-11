@@ -1,12 +1,13 @@
 import tensorflow as tf
 from tensorflow.keras import layers
 from tf_utils.process_images import clip_0_1
+import numpy as np
 
 
 class DCGAN():
   """Convolutional variational autoencoder."""
 
-  def __init__(self, latent_dim, image_shape, image_channels=1):
+  def __init__(self, latent_dim, image_shape, image_channels=1, model_name="dc_gan", checkpoint_path="training/", seed=None, seed_length=4):
     super(DCGAN, self).__init__()
     self.latent_dim = latent_dim
     self.image_shape = image_shape
@@ -22,6 +23,14 @@ class DCGAN():
     self.cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     self.generator_optimizer = tf.keras.optimizers.Adam(1e-4)
     self.discriminator_optimizer = tf.keras.optimizers.Adam(1e-4)
+
+    self.generator_checkpoint_path = "training/"+model_name+"-generator-"
+    self.discriminator_checkpoint_path = "training/"+model_name+"-discriminator"
+
+    if seed is None:
+      self.seed=tf.random.normal([seed_length, self.latent_dim])
+
+    self.loss_names = ["Generator Loss", "Discriminator Loss"]
 
 
   def make_generator_model(self):
@@ -89,26 +98,8 @@ class DCGAN():
     total_loss = real_loss + fake_loss
     return total_loss
 
-  @tf.function
-  def sample(self, eps=None):
-    if eps is None:
-      eps = tf.random.normal(shape=(100, self.latent_dim))
-    return self.decode(eps, apply_sigmoid=True)
-
-  def encode(self, x):
-    mean, logvar = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
-    return mean, logvar
-
-  def reparameterize(self, mean, logvar):
-    eps = tf.random.normal(shape=mean.shape)
-    return eps * tf.exp(logvar * .5) + mean
-
-  # def decode(self, z, apply_sigmoid=False):
-  #   logits = self.decoder(z)
-  #   if apply_sigmoid:
-  #     probs = tf.sigmoid(logits)
-  #     return probs
-  #   return logits
+  def classify_image(self, image):
+    return self.discriminator(image)
 
   # Notice the use of `tf.function`
   # This annotation causes the function to be "compiled".
@@ -132,4 +123,13 @@ class DCGAN():
       self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.generator.trainable_variables))
       self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.discriminator.trainable_variables))
 
-      return gen_loss, disc_loss, generated_images
+      return [gen_loss, disc_loss] # ["Generator Loss", "Discriminator Loss"]
+
+
+  def save_weights(self, add_text=""):
+    self.generator.save_weights(self.generator_checkpoint_path+add_text+".weights.h5")
+    self.discriminator.save_weights(self.discriminator_checkpoint_path+add_text+".weights.h5")
+
+  def load_weights(self, add_text=""):
+    self.generator.load_weights(self.generator_checkpoint_path+add_text+".weights.h5")
+    self.discriminator.load_weights(self.discriminator_checkpoint_path+add_text+".weights.h5")
