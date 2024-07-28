@@ -4,11 +4,13 @@ from tf_utils.process_images import clip_0_1
 import numpy as np
 
 
-class DCGAN():
+class DCGAN(tf.keras.Model):
   """Convolutional variational autoencoder."""
 
-  def __init__(self, latent_dim, image_shape, image_channels=1, model_name="dc_gan", checkpoint_path="training/", seed=None, seed_length=4):
+  def __init__(self, model_name, latent_dim, image_shape, image_channels=1, checkpoint_path="training/", seed=None, seed_length=4):
     super(DCGAN, self).__init__()
+
+    self.model_name = model_name
     self.latent_dim = latent_dim
     self.image_shape = image_shape
     self.image_channels = image_channels
@@ -24,11 +26,12 @@ class DCGAN():
     self.generator_optimizer = tf.keras.optimizers.Adam(1e-4)
     self.discriminator_optimizer = tf.keras.optimizers.Adam(1e-4)
 
-    self.generator_checkpoint_path = "training/"+model_name+"-generator-"
-    self.discriminator_checkpoint_path = "training/"+model_name+"-discriminator"
+    self.generator_checkpoint_path = checkpoint_path+model_name+"-generator-"
+    self.discriminator_checkpoint_path = checkpoint_path+model_name+"-discriminator-"
 
+    self.seed_length = seed_length
     if seed is None:
-      self.seed=tf.random.normal([seed_length, self.latent_dim])
+      self.seed=tf.random.normal([self.seed_length, self.latent_dim])
 
     self.loss_names = ["Generator Loss", "Discriminator Loss"]
 
@@ -70,11 +73,11 @@ class DCGAN():
   def generator_loss(self, fake_output):
     return self.cross_entropy(tf.ones_like(fake_output), fake_output)
 
-  def generate_images(self, input=None):
-    if input is None:
-      num_images_to_generate = 1
-      input = tf.random.normal([num_images_to_generate, self.latent_dim])
-    return clip_0_1(self.generator(input, training=False))
+  @tf.function
+  def generate_images(self, seed=None):
+    if seed is None:
+      seed = tf.random.normal([self.seed_length, self.latent_dim])
+    return clip_0_1(self.generator(seed, training=False))
 
   def make_discriminator_model(self):
     model = tf.keras.Sequential()
@@ -101,29 +104,37 @@ class DCGAN():
   def classify_image(self, image):
     return self.discriminator(image)
 
+  def compute_loss(self, images):
+    ## TODO: check this function. Is the same using batch_size that len(images) in the generation of noise?
+    noise = tf.random.normal([len(images), self.latent_dim])
+
+    generated_images = self.generator(noise, training=True)
+    generated_images = clip_0_1(generated_images) #tanh output, clipping is needed
+
+    real_output = self.discriminator(images, training=True)
+    fake_output = self.discriminator(generated_images, training=True)
+
+    gen_loss = self.generator_loss(fake_output)
+    disc_loss = self.discriminator_loss(real_output, fake_output)
+
+    return gen_loss, disc_loss
+
   # Notice the use of `tf.function`
   # This annotation causes the function to be "compiled".
   @tf.function
-  def train_step(self, images, batch_size):
-      noise = tf.random.normal([batch_size, self.latent_dim])
+  def train_step(self, images):
 
       with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        generated_images = self.generator(noise, training=True)
-        generated_images = clip_0_1(generated_images) #tanh output, clipping is needed
+        gen_loss, disc_loss = self.compute_loss(images)
 
-        real_output = self.discriminator(images, training=True)
-        fake_output = self.discriminator(generated_images, training=True)
-
-        gen_loss = self.generator_loss(fake_output)
-        disc_loss = self.discriminator_loss(real_output, fake_output)
-
+      ## TODO: the following functions must be inside the with? We are using gen_tape and disc_tape outside the with
       gradients_of_generator = gen_tape.gradient(gen_loss, self.generator.trainable_variables)
       gradients_of_discriminator = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables)
 
       self.generator_optimizer.apply_gradients(zip(gradients_of_generator, self.generator.trainable_variables))
       self.discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, self.discriminator.trainable_variables))
 
-      return [gen_loss, disc_loss] # ["Generator Loss", "Discriminator Loss"]
+      # return [gen_loss, disc_loss] # ["Generator Loss", "Discriminator Loss"]
 
 
   def save_weights(self, add_text=""):
