@@ -5,7 +5,7 @@ import numpy as np
 
 
 class DCGAN(tf.keras.Model):
-  """Convolutional variational autoencoder."""
+  """Deep Convolutional Generative Adversarial Network."""
 
   def __init__(self, model_name, latent_dim, image_shape, image_channels=1, checkpoint_path="training/", seed=None, seed_length=4):
     super(DCGAN, self).__init__()
@@ -15,7 +15,7 @@ class DCGAN(tf.keras.Model):
     self.image_shape = image_shape
     self.image_channels = image_channels
     self.generator = self.make_generator_model()
-    print("Generator summary:\n") 
+    print("Generator summary:\n")
     self.generator.summary()
     self.discriminator = self.make_discriminator_model()
     print("Discriminator summary:\n")

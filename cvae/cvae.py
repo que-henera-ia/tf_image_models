@@ -1,11 +1,12 @@
 import tensorflow as tf
+from tensorflow.keras import layers
 import numpy as np
 
 
 class CVAE(tf.keras.Model):
-  """Convolutional variational autoencoder."""
+  """Convolutional Variational Autoencoder."""
 
-  def __init__(self, model_name, latent_dim, image_shape, img_channels=1, checkpoint_path="training/", seed=None, seed_length=4):
+  def __init__(self, model_name, latent_dim, image_shape, image_channels=1, checkpoint_path="training/", seed=None, seed_length=4):
     super(CVAE, self).__init__()
     
     self.model_name = model_name
@@ -13,7 +14,7 @@ class CVAE(tf.keras.Model):
     self.image_shape = image_shape
     self.image_channels = image_channels
     self.encoder = self.make_encoder_model()
-    print("Encoder summary:\n") 
+    print("Encoder summary:\n")
     self.encoder.summary()
     self.decoder = self.make_decoder_model()
     print("Decoder summary:\n")
@@ -27,7 +28,7 @@ class CVAE(tf.keras.Model):
     
     self.seed_length = seed_length
     if seed is None:
-      self.seed=tf.random.normal([seed_length, self.latent_dim])
+      self.seed=tf.random.normal([self.seed_length, self.latent_dim])
 
     self.loss_names = ["ELBO"]
 
