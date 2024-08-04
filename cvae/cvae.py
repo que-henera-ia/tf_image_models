@@ -1,16 +1,41 @@
 import tensorflow as tf
+from tensorflow.keras import layers
 import numpy as np
 
 
 class CVAE(tf.keras.Model):
-  """Convolutional variational autoencoder."""
+  """Convolutional Variational Autoencoder."""
 
-  def __init__(self, latent_dim, image_shape, img_channels=1, load_model=False):
+  def __init__(self, model_name, latent_dim, image_shape, image_channels=1, checkpoint_path="training/", seed=None, seed_length=4):
     super(CVAE, self).__init__()
+    
+    self.model_name = model_name
     self.latent_dim = latent_dim
-    self.encoder = tf.keras.Sequential(
+    self.image_shape = image_shape
+    self.image_channels = image_channels
+    self.encoder = self.make_encoder_model()
+    print("Encoder summary:\n")
+    self.encoder.summary()
+    self.decoder = self.make_decoder_model()
+    print("Decoder summary:\n")
+    self.decoder.summary()
+
+    # Define optimizer
+    self.optimizer = tf.keras.optimizers.Adam(1e-4)
+
+    self.encoder_checkpoint_path = checkpoint_path+model_name+"-encoder-"
+    self.decoder_checkpoint_path = checkpoint_path+model_name+"-decoder-"
+    
+    self.seed_length = seed_length
+    if seed is None:
+      self.seed=tf.random.normal([self.seed_length, self.latent_dim])
+
+    self.loss_names = ["ELBO"]
+
+  def make_encoder_model(self):
+    model = tf.keras.Sequential(
         [
-            tf.keras.layers.InputLayer(input_shape=(image_shape, image_shape, img_channels)),
+            tf.keras.layers.InputLayer(input_shape=(self.image_shape, self.image_shape, self.img_channels)),
             tf.keras.layers.Conv2D(
                 filters=32, kernel_size=3, strides=(2, 2), activation='relu'),
             tf.keras.layers.Conv2D(
@@ -19,15 +44,17 @@ class CVAE(tf.keras.Model):
                 filters=128, kernel_size=3, strides=(2, 2), activation='relu'),
             tf.keras.layers.Flatten(),
             # No activation
-            tf.keras.layers.Dense(latent_dim + latent_dim),
+            tf.keras.layers.Dense(self.latent_dim + self.latent_dim),
         ]
     )
+    return model
 
-    self.decoder = tf.keras.Sequential(
+  def make_decoder_model(self):
+    model = tf.keras.Sequential(
         [
-            tf.keras.layers.InputLayer(input_shape=(latent_dim,)),
-            tf.keras.layers.Dense(units=int(image_shape/4)*int(image_shape/4)*32, activation=tf.nn.relu),
-            tf.keras.layers.Reshape(target_shape=(int(image_shape/4), int(image_shape/4), 32)),
+            tf.keras.layers.InputLayer(input_shape=(self.latent_dim,)),
+            tf.keras.layers.Dense(units=int(self.image_shape/4)*int(self.image_shape/4)*32, activation=tf.nn.relu),
+            tf.keras.layers.Reshape(target_shape=(int(self.image_shape/4), int(self.image_shape/4), 32)),
             tf.keras.layers.Conv2DTranspose(
                 filters=128, kernel_size=3, strides=2, padding='same',
                 activation='relu'),
@@ -39,21 +66,15 @@ class CVAE(tf.keras.Model):
                 activation='relu'),
             # No activation
             tf.keras.layers.Conv2DTranspose(
-                filters=img_channels, kernel_size=3, strides=1, padding='same'),
+                filters=self.img_channels, kernel_size=3, strides=1, padding='same'),
         ]
     )
-
-    print("Encoder summary:\n") 
-    self.encoder.summary()
-    print("Decoder summary:\n")
-    self.decoder.summary()
-
-    if load_model:
-      # Load the previously saved weights
-      self.encoder.load_weights("training_1/cp-encoder-0100.weights.h5")
-      self.decoder.load_weights("training_1/cp-decoder-0100.weights.h5")
+    return model
 
   def encode(self, x):
+    '''
+    Code a given image
+    '''
     mean, logvar = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
     return mean, logvar
 
@@ -68,22 +89,30 @@ class CVAE(tf.keras.Model):
       return probs
     return logits
 
+  @tf.function
+  def generate_images(self, seed=None):
+    '''
+    Decode a given seed to generate an image
+    '''
+    if seed is None:
+      seed = tf.random.normal(shape=(self.seed_length, self.latent_dim))
+    return self.decode(seed, apply_sigmoid=True)
 
   @tf.function
-  def sample(self, eps=None):
-    if eps is None:
-      eps = tf.random.normal(shape=(100, self.latent_dim))
-    return self.decode(eps, apply_sigmoid=True)
-
-
   def inference_batch_images(self, input_images):
+    '''
+    Code and decode a set of images
+    '''
     mean, logvar = self.encode(input_images)
     z = self.reparameterize(mean, logvar)
     predictions = self.sample(z)
     return predictions
 
-
+  @tf.function
   def inference_image(self, input_image):
+    '''
+    Code and decode image
+    '''
     input_image = tf.expand_dims(input_image, axis=0)
     mean, logvar = self.encode(input_image)
     z = self.reparameterize(mean, logvar)
@@ -120,7 +149,7 @@ class CVAE(tf.keras.Model):
 
 
   @tf.function
-  def train_step(self, x, optimizer):
+  def train_step(self, x):
     """Executes one training step and returns the loss.
 
     This function computes the loss and gradients, and uses the latter to
@@ -129,4 +158,22 @@ class CVAE(tf.keras.Model):
     with tf.GradientTape() as tape:
       loss = self.compute_loss(x)
     gradients = tape.gradient(loss, self.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+    self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+    # return [loss]
+
+
+  def compute_test_loss(self, test_dataset):
+    loss = tf.keras.metrics.Mean()
+    for test_x in test_dataset:
+      loss(self.compute_loss(test_x))
+    elbo = -loss.result()
+    return elbo
+
+  def save_weights(self, add_text=""):
+    self.encoder.save_weights(self.encoder_checkpoint_path+add_text+".weights.h5")
+    self.decoder.save_weights(self.decoder_checkpoint_path+add_text+".weights.h5")
+
+  def load_weights(self, add_text=""):
+    self.encoder.load_weights(self.encoder_checkpoint_path+add_text+".weights.h5")
+    self.decoder.load_weights(self.decoder_checkpoint_path+add_text+".weights.h5")
