@@ -72,6 +72,9 @@ class CVAE(tf.keras.Model):
     return model
 
   def encode(self, x):
+    '''
+    Code a given image
+    '''
     mean, logvar = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
     return mean, logvar
 
@@ -88,12 +91,18 @@ class CVAE(tf.keras.Model):
 
   @tf.function
   def generate_images(self, seed=None):
+    '''
+    Decode a given seed to generate an image
+    '''
     if seed is None:
       seed = tf.random.normal(shape=(self.seed_length, self.latent_dim))
     return self.decode(seed, apply_sigmoid=True)
 
   @tf.function
   def inference_batch_images(self, input_images):
+    '''
+    Code and decode a set of images
+    '''
     mean, logvar = self.encode(input_images)
     z = self.reparameterize(mean, logvar)
     predictions = self.sample(z)
@@ -101,6 +110,9 @@ class CVAE(tf.keras.Model):
 
   @tf.function
   def inference_image(self, input_image):
+    '''
+    Code and decode image
+    '''
     input_image = tf.expand_dims(input_image, axis=0)
     mean, logvar = self.encode(input_image)
     z = self.reparameterize(mean, logvar)
@@ -154,8 +166,9 @@ class CVAE(tf.keras.Model):
   def compute_test_loss(self, test_dataset):
     loss = tf.keras.metrics.Mean()
     for test_x in test_dataset:
-      loss(model.compute_loss(test_x))
+      loss(self.compute_loss(test_x))
     elbo = -loss.result()
+    return elbo
 
   def save_weights(self, add_text=""):
     self.encoder.save_weights(self.encoder_checkpoint_path+add_text+".weights.h5")
