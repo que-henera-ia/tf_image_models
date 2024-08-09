@@ -35,7 +35,7 @@ class CVAE(tf.keras.Model):
   def make_encoder_model(self):
     model = tf.keras.Sequential(
         [
-            tf.keras.layers.InputLayer(input_shape=(self.image_shape, self.image_shape, self.img_channels)),
+            tf.keras.layers.InputLayer(input_shape=(self.image_shape, self.image_shape, self.image_channels)),
             tf.keras.layers.Conv2D(
                 filters=32, kernel_size=3, strides=(2, 2), activation='relu'),
             tf.keras.layers.Conv2D(
@@ -66,7 +66,7 @@ class CVAE(tf.keras.Model):
                 activation='relu'),
             # No activation
             tf.keras.layers.Conv2DTranspose(
-                filters=self.img_channels, kernel_size=3, strides=1, padding='same'),
+                filters=self.image_channels, kernel_size=3, strides=1, padding='same'),
         ]
     )
     return model
@@ -105,7 +105,7 @@ class CVAE(tf.keras.Model):
     '''
     mean, logvar = self.encode(input_images)
     z = self.reparameterize(mean, logvar)
-    predictions = self.sample(z)
+    predictions = self.generate_images(z)
     return predictions
 
   @tf.function
@@ -116,7 +116,7 @@ class CVAE(tf.keras.Model):
     input_image = tf.expand_dims(input_image, axis=0)
     mean, logvar = self.encode(input_image)
     z = self.reparameterize(mean, logvar)
-    predictions = self.sample(z)
+    predictions = self.generate_images(z)
     return predictions[0, :, :, :]
 
 
@@ -145,7 +145,7 @@ class CVAE(tf.keras.Model):
     logpx_z = tf.cast(-tf.reduce_sum(cross_ent, axis=[1, 2, 3]), tf.float32)
     logpz = tf.cast(self.log_normal_pdf(z, 0., 0.), tf.float32)
     logqz_x = tf.cast(self.log_normal_pdf(z, mean, logvar), tf.float32)
-    return -tf.reduce_mean(logpx_z + logpz - logqz_x)
+    return -tf.reduce_mean(logpx_z + logpz - logqz_x) #ELBO
 
 
   @tf.function
@@ -163,12 +163,12 @@ class CVAE(tf.keras.Model):
     # return [loss]
 
 
-  def compute_test_loss(self, test_dataset):
+  def compute_set_loss(self, image_set):
     loss = tf.keras.metrics.Mean()
-    for test_x in test_dataset:
+    for test_x in image_set:
       loss(self.compute_loss(test_x))
     elbo = -loss.result()
-    return elbo
+    return [elbo]
 
   def save_weights(self, add_text=""):
     self.encoder.save_weights(self.encoder_checkpoint_path+add_text+".weights.h5")

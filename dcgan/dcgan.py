@@ -136,6 +136,15 @@ class DCGAN(tf.keras.Model):
 
       # return [gen_loss, disc_loss] # ["Generator Loss", "Discriminator Loss"]
 
+  def compute_set_loss(self, image_set):
+    gen_loss = tf.keras.metrics.Mean()
+    disc_loss = tf.keras.metrics.Mean()
+    for test_x in image_set:
+      gen_loss(self.compute_loss(test_x)[0])
+      disc_loss(self.compute_loss(test_x)[1])
+    gen_loss = gen_loss.result()
+    disc_loss = disc_loss.result()
+    return [gen_loss, disc_loss]
 
   def save_weights(self, add_text=""):
     self.generator.save_weights(self.generator_checkpoint_path+add_text+".weights.h5")
